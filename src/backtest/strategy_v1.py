@@ -23,6 +23,7 @@ import pandas as pd
 
 from src.backtest.engine import M1, simulate
 from src.features.cisd import cisds
+from src.features.context import fvg_zones, touched_valid_zone
 from src.features.daily_bias import bias_for_next_day, day_key
 
 TF_MINUTES = {"M5": 5, "M15": 15}
@@ -40,15 +41,28 @@ class Params:
     stop_buffer: float = 0.00005  # 0.5 pip au-delà de l'extrême [À VALIDER]
     min_stop_pips: float = 3.0  # [À VALIDER]
     exit_hhmm: str = "16:55"
+    # Règles de contexte (testées une par une)
+    require_discount: bool = False  # A : long sous l'EQ (0.5) de la bougie daily de la veille, short au-dessus
+    require_htf_fvg: bool = False  # B : le mouvement du CISD a touché une FVG H1 valide dans le sens du biais
+    fvg_max_age_bars: int = 120  # durée de vie d'une FVG H1 (5 jours) [À VALIDER]
 
 
 def _ns(ts: pd.Timestamp) -> int:
     return ts.tz_convert("UTC").as_unit("ns").value
 
 
-def generate_trades(symbol: str, d1: pd.DataFrame, entry_bars: pd.DataFrame, m1_df: pd.DataFrame, p: Params) -> pd.DataFrame:
+def generate_trades(
+    symbol: str,
+    d1: pd.DataFrame,
+    entry_bars: pd.DataFrame,
+    m1_df: pd.DataFrame,
+    p: Params,
+    h1: pd.DataFrame | None = None,
+    signals: pd.DataFrame | None = None,
+) -> pd.DataFrame:
     bias = bias_for_next_day(d1)
-    signals = cisds(entry_bars)
+    zones = fvg_zones(h1, pd.Timedelta(hours=1), p.fvg_max_age_bars) if p.require_htf_fvg else None
+    signals = cisds(entry_bars) if signals is None else signals.copy()
     signals["day"] = day_key(signals.index)
     tf = pd.Timedelta(minutes=TF_MINUTES[p.entry_tf])
     m1 = M1.from_frame(m1_df)
@@ -84,6 +98,12 @@ def generate_trades(symbol: str, d1: pd.DataFrame, entry_bars: pd.DataFrame, m1_
                 target = entry + b.bias * p.target_r * risk
                 if (b.bias == 1 and dol < target) or (b.bias == -1 and dol > target):
                     continue  # DOL trop proche : pas de 2R disponible
+                if p.require_discount:
+                    eq = (b.pdh + b.pdl) / 2
+                    if (b.bias == 1 and entry > eq) or (b.bias == -1 and entry < eq):
+                        continue
+                if p.require_htf_fvg and not touched_valid_zone(zones, int(b.bias), s.extreme, s.extreme_time, known_at):
+                    continue
                 # DOL déjà prise entre l'ouverture du jour et le signal ?
                 window = slice(day_open.tz_convert("UTC"), known_at.tz_convert("UTC") - pd.Timedelta(minutes=1))
                 if b.bias == 1 and m1_ny_high.loc[window].max() >= dol:

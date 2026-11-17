@@ -70,3 +70,23 @@ def test_daily_labels_c2_then_c3():
     lab = label_days(d1)
     assert lab.kind.tolist() == ["none", "C2", "C3", "C4"]
     assert lab.direction.tolist() == [0, 1, 1, 1]
+
+
+def test_htf_fvg_zone_valid_until_close_through():
+    from src.features.context import fvg_zones, touched_valid_zone
+
+    rows = [(1.00, 1.01, 0.99, 1.005)] * 15 + [
+        (1.00, 1.01, 0.99, 1.005),  # c1 : haut 1.01
+        (1.005, 1.05, 1.005, 1.045),  # c2 : expansion
+        (1.045, 1.05, 1.02, 1.048),  # c3 : bas 1.02 → FVG haussière [1.01, 1.02]
+        (1.048, 1.049, 1.015, 1.03),  # mèche dans la zone, clôture au-dessus : respect
+        (1.03, 1.031, 1.00, 1.005),  # clôture sous 1.01 : FVG invalidée
+    ]
+    b = bars(rows, freq="1h")
+    z = fvg_zones(b, pd.Timedelta(hours=1), min_size_atr=0.0)
+    z = z[z.side == 1]
+    assert len(z) == 1 and z.iloc[0].bottom == 1.01 and z.iloc[0].top == 1.02
+    t_touch, t_after = b.index[18], b.index[19] + pd.Timedelta(hours=1)
+    assert touched_valid_zone(z, 1, 1.015, t_touch, t_touch + pd.Timedelta(hours=1))
+    assert not touched_valid_zone(z, 1, 1.015, t_touch, t_after)  # signal après l'invalidation
+    assert not touched_valid_zone(z, 1, 1.03, t_touch, t_touch + pd.Timedelta(hours=1))  # pas descendu dans la zone
