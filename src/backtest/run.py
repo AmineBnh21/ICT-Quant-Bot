@@ -95,10 +95,11 @@ def report(tf: str, trades: pd.DataFrame, plan: dict) -> None:
 VARIANTS = {
     "base": {},
     "A discount": {"require_discount": True},
-    "A + C tous": {"require_discount": True, "h1_cisd": "all"},
-    "A + C C2": {"require_discount": True, "h1_cisd": "C2"},
+    "A + S1 H1": {"require_discount": True, "stop_mode": "h1_swing"},
+    "A + S2 jour": {"require_discount": True, "stop_mode": "day_extreme"},
 }
-# Règles déjà écartées (dégradent les deux périodes) : "B FVG H1" = {"require_htf_fvg": True}
+# Règles écartées : "B FVG H1" = {"require_htf_fvg": True} (dégrade les deux périodes),
+# "C CISD H1" = {"h1_cisd": "all" | "C2"} (améliore une période, dégrade l'autre).
 
 
 def compare(tfs: list[str], plan: dict, data: dict, out: Path) -> None:
@@ -107,7 +108,7 @@ def compare(tfs: list[str], plan: dict, data: dict, out: Path) -> None:
     for tf in tfs:
         signals = {s: cisds(load_bars(s, tf)) for s in PAIRS}
         print(f"\n{'=' * 118}\nCOMPARAISON DES RÈGLES DE CONTEXTE, entrée {tf} (seuil de rentabilité : 33,3 % de gagnants)\n{'=' * 118}")
-        print(f"{'variante':12} {'période':10} {'trades':>6} {'gagnants':>9} {'IC95':>9} {'espérance':>10} {'total':>8} {'PF':>5} {'DD':>6}   prop 2015-2026 : P1 / 2 phases")
+        print(f"{'variante':12} {'période':10} {'trades':>6} {'gagnants':>9} {'IC95':>9} {'espérance':>10} {'total':>8} {'PF':>5} {'DD':>6} {'stop':>6}   prop 2015-2026 : P1 / 2 phases")
         for name, overrides in VARIANTS.items():
             p = params_from_plan(plan, tf)
             for k, v in overrides.items():
@@ -128,7 +129,8 @@ def compare(tfs: list[str], plan: dict, data: dict, out: Path) -> None:
                 prop = f"{100 * pf['pass_phase1']:3.0f} % / {100 * pf['pass_both']:3.0f} %" if label == "2015-2020" and pf else ""
                 print(
                     f"{name:12} {label:10} {s['trades']:>6} {100 * s['win_rate']:8.1f}% {f'[{100 * lo:.0f}–{100 * hi:.0f}]':>9} "
-                    f"{s['expectancy_r']:+9.3f}R {s['total_r']:+7.1f}R {s['profit_factor']:5.2f} {s['max_dd_r']:5.1f}R   {prop}"
+                    f"{s['expectancy_r']:+9.3f}R {s['total_r']:+7.1f}R {s['profit_factor']:5.2f} {s['max_dd_r']:5.1f}R "
+                    f"{trades[mask].stop_pips.median():5.1f}p   {prop}"
                 )
 
 

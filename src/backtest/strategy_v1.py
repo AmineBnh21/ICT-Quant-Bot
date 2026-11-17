@@ -25,6 +25,7 @@ from src.backtest.engine import M1, simulate
 from src.features.cisd import cisds
 from src.features.context import fvg_zones, touched_valid_zone
 from src.features.daily_bias import bias_for_next_day, day_key
+from src.features.swings import swings
 
 TF_MINUTES = {"M5": 5, "M15": 15}
 
@@ -48,6 +49,10 @@ class Params:
     # C : CISD H1 dans le sens du biais, formé depuis l'ouverture du jour, avant le signal d'entrée.
     # "off" | "all" (tous les biais) | "C2" (seulement quand le biais vient d'un C2)
     h1_cisd: str = "off"
+    # Placement du stop : "cisd" (extrême du mouvement du CISD), "h1_swing" (dernier swing H1 confirmé
+    # au-delà de l'entrée), "day_extreme" (plus bas / plus haut du jour de trading jusqu'au signal).
+    # Le stop n'est jamais plus serré que l'extrême du CISD.
+    stop_mode: str = "cisd"
 
 
 def _ns(ts: pd.Timestamp) -> int:
@@ -66,6 +71,14 @@ def generate_trades(
     bias = bias_for_next_day(d1)
     zones = fvg_zones(h1, pd.Timedelta(hours=1), p.fvg_max_age_bars) if p.require_htf_fvg else None
     signals = cisds(entry_bars) if signals is None else signals.copy()
+    h1_swings = None
+    if p.stop_mode == "h1_swing":
+        sw = swings(h1)
+        known = sw.confirmed_at + pd.Timedelta(hours=1)  # connu à la clôture de la bougie de confirmation
+        h1_swings = {
+            1: pd.Series(h1.low[sw.swing_low].to_numpy(), index=known[sw.swing_low]).sort_index(),
+            -1: pd.Series(h1.high[sw.swing_high].to_numpy(), index=known[sw.swing_high]).sort_index(),
+        }
     h1_known = None
     if p.h1_cisd != "off":
         hc = cisds(h1)
@@ -98,7 +111,17 @@ def generate_trades(
                 if not (kz_s < known_at <= kz_e):
                     continue
                 entry = s.level
-                stop = s.extreme - p.stop_buffer if b.bias == 1 else s.extreme + p.stop_buffer + p.spread
+                anchor = s.extreme
+                if p.stop_mode == "h1_swing":
+                    hist = h1_swings[int(b.bias)].loc[: known_at]
+                    beyond = hist[hist < entry] if b.bias == 1 else hist[hist > entry]
+                    if beyond.empty:
+                        continue
+                    anchor = min(anchor, beyond.iloc[-1]) if b.bias == 1 else max(anchor, beyond.iloc[-1])
+                elif p.stop_mode == "day_extreme":
+                    win = slice(day_open.tz_convert("UTC"), known_at.tz_convert("UTC") - pd.Timedelta(minutes=1))
+                    anchor = min(anchor, m1_ny_low.loc[win].min()) if b.bias == 1 else max(anchor, m1_ny_high.loc[win].max())
+                stop = anchor - p.stop_buffer if b.bias == 1 else anchor + p.stop_buffer + p.spread
                 risk = abs(entry - stop)
                 if risk < p.min_stop_pips * p.pip:
                     continue
