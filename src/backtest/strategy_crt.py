@@ -46,6 +46,8 @@ class CRTParams:
     confirm: tuple = ("cisd", "first_opposing")  # l'une OU l'autre
     require_discount: bool = True
     htf_filter: bool = False
+    # Heures d'ouverture (New York) autorisées pour la bougie X dans laquelle on entre (ex : (1, 5, 9) en H4).
+    x_hours: tuple | None = None
     target_r: float = 2.0
     pip: float = 0.0001
     spread: float = 0.00004
@@ -122,6 +124,8 @@ def generate_trades(symbol: str, bars: dict[str, pd.DataFrame], m1_df: pd.DataFr
                 j = X.containing(known)  # bougie X en cours
                 if j < 2:
                     continue
+                if p.x_hours is not None and X.t[j].hour not in p.x_hours:
+                    continue
 
                 # 1) CRT sur X
                 setup, c1, sweep_y = None, -1, -1
@@ -188,6 +192,7 @@ def generate_trades(symbol: str, bars: dict[str, pd.DataFrame], m1_df: pd.DataFr
                     stop_pips=risk / p.pip, outcome=f.outcome, r=f.r, mae_r=f.mae_r, mfe_r=f.mfe_r,
                     pdh=X.h[c1], pdl=X.l[c1], cisd_run_start=s.run_start, cisd_extreme=s.extreme,
                     cisd_extreme_time=s.extreme_time, entry_tf=z_tf, sweep_time=sweep_t, confirm_time=confirm,
+                    x_candle=X.t[j],
                 ))
                 done = True
                 break
