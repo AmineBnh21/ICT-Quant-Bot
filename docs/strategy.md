@@ -217,6 +217,61 @@ ALORS limit au niveau du CISD, stop au swing, cible 2R fixe
 Ensuite on ajoute **une règle à la fois** et on la garde seulement si elle améliore les résultats **hors échantillon** :
 CISD 1H obligatoire → SMT / PSP → qualité de FVG (PFVG, BAG, RFVG) → biais Weekly → filtre news → C4.
 
+**Résultats v1 (2015-2026, M15) :** seule la règle « long sous l'EQ de la veille, short au-dessus » a amélioré
+les deux périodes. FVG H1, CISD H1 seul et stops plus larges ont été écartés (voir l'historique git).
+
+---
+
+## 7 bis. Version 2 : top-down Monthly → Weekly → Daily, puis H4 → H1 → M15
+
+**Règle de l'utilisateur :** on connaît d'abord le biais HTF, ensuite seulement on descend.
+**Le M15 est le plus petit timeframe** : pas de M5, pas de M1 (le M1 sert uniquement au moteur pour savoir
+si le stop ou la cible est touché en premier).
+
+### Biais d'un timeframe HTF (MN1, W1, D1), calculé sur la dernière bougie TERMINÉE
+Trois éléments, d'après l'utilisateur :
+1. **PD Arrays respectés / disrespectés** (Arjo, section 1.5). PD Arrays suivis sur ce timeframe :
+   FVG et swing points. À chaque bougie terminée :
+   - elle touche un **discount array** (FVG haussière, swing low) et clôture au-dessus → **respect → +1** ;
+     elle clôture à travers → **disrespect → −1** ;
+   - elle touche un **premium array** (FVG baissière, swing high) et clôture en dessous → **respect → −1** ;
+     elle clôture à travers → **disrespect → +1**.
+   La dernière réaction connue donne le sens « PD Arrays » (il reste valable jusqu'à la réaction suivante).
+2. **Bougie C2 / continuation** (section 2.2) : sens de la dernière bougie.
+3. **Premium / discount** du range de la dernière bougie terminée (EQ 0,5) : sert de **filtre d'emplacement**
+   (long seulement en discount, short seulement en premium).
+
+Sens du timeframe = 1 et 2 combinés : s'ils sont d'accord, ou si l'un est neutre → ce sens ; s'ils s'opposent → neutre.
+
+### Alignement top-down
+- **Daily** non neutre (obligatoire) ;
+- **Weekly** dans le même sens que le Daily (ou neutre) ;
+- **Monthly** pas dans le sens opposé.
+
+## 7 ter. Les deux modèles CRT haute probabilité (règles de l'utilisateur)
+
+L'utilisateur trade **uniquement ces deux modèles**, construits de la même façon (fractal) :
+
+| Modèle | CRT C1-C2-C3 (X) | Confirmation (Y) | Entrée (Z) |
+|---|---|---|---|
+| **4H** | H4 | H1 | M15 |
+| **Daily** | D1 | H4 | H1 |
+
+Pour un long (inverse pour un short) :
+1. **CRT sur X**, deux setups tradés :
+   - **C3** : la dernière bougie X terminée est un C2 haussier (balayage du bas de C1, clôture dans le range
+     de C1) → on trade la bougie X en cours ;
+   - **C2** : la bougie X en cours a déjà balayé le bas de la précédente (C1) sans prendre son haut.
+   Cible = **haut de C1 (CRT High)**.
+2. **Confirmation sur Y** après le balayage : **CISD** OU **#01 First Opposing Candle** (MZ Trader : première
+   bougie Y haussière qui clôture, à partir de la bougie du balayage).
+3. **Entrée sur Z** : CISD dans le sens du trade, formé après la confirmation, dans une killzone. Limit au niveau
+   du CISD, stop au-delà de l'extrême, **cible 2R fixe** (le CRT High doit être au-delà, et pas encore pris).
+   Entrée dans la moitié discount du range de C1 (sous son 0,5).
+4. Option **top-down** : biais Weekly et Monthly (section 7 bis) pas dans le sens opposé.
+
+Code : `src/backtest/strategy_crt.py` ; comparaison : `python -m src.backtest.run --crt`.
+
 ---
 
 ## 8. Questions à tester avec les données (avant le bot)

@@ -134,14 +134,74 @@ def compare(tfs: list[str], plan: dict, data: dict, out: Path) -> None:
                 )
 
 
+CRT_VARIANTS = {
+    "4H": {"model": "4H"},
+    "4H + HTF": {"model": "4H", "htf_filter": True},
+    "Daily": {"model": "Daily"},
+    "Daily + HTF": {"model": "Daily", "htf_filter": True},
+}
+
+
+def print_row(name: str, label: str, t: pd.DataFrame, prop: str = "") -> None:
+    s = summary(t)
+    if not s.get("trades"):
+        print(f"{name:14} {label:10} aucun trade")
+        return
+    lo, hi = s["win_ci"]
+    print(
+        f"{name:14} {label:10} {s['trades']:>6} {100 * s['win_rate']:8.1f}% {f'[{100 * lo:.0f}–{100 * hi:.0f}]':>9} "
+        f"{s['expectancy_r']:+9.3f}R {s['total_r']:+7.1f}R {s['profit_factor']:5.2f} {s['max_dd_r']:5.1f}R "
+        f"{t.stop_pips.median():5.1f}p   {prop}"
+    )
+
+
+def compare_crt(plan: dict, out: Path) -> None:
+    """Les deux modèles CRT de l'utilisateur (4H : H4/H1/M15 ; Daily : D1/H4/H1), avec et sans filtre HTF."""
+    from src.backtest.strategy_crt import CRTParams
+    from src.backtest.strategy_crt import generate_trades as crt_trades
+
+    rules = plan["risk"]["risk_per_trade"]
+    c = plan["costs"]
+    tfs = ["MN1", "W1", "D1", "H4", "H1", "M15"]
+    bars = {s: {tf: load_bars(s, tf) for tf in tfs} for s in PAIRS}
+    m1 = {s: load_m1(s, ROOT) for s in PAIRS}
+    sigs = {s: {tf: cisds(bars[s][tf]) for tf in ["H4", "H1", "M15"]} for s in PAIRS}
+    print(f"\n{'=' * 120}\nMODÈLES CRT HAUTE PROBABILITÉ (seuil de rentabilité : 33,3 % de gagnants)\n{'=' * 120}")
+    print(f"{'variante':14} {'période':10} {'trades':>6} {'gagnants':>9} {'IC95':>9} {'espérance':>10} {'total':>8} {'PF':>5} {'DD':>6} {'stop':>6}   prop 2015-2026 : P1 / 2 phases")
+    all_models = {}
+    for name, overrides in CRT_VARIANTS.items():
+        p = CRTParams(spread=c["spread_points"] * c["point_size"], slippage=c["slippage_pips"] * 0.0001,
+                      killzones={k: (v["start"], v["end"]) for k, v in plan["time"]["killzones"].items()}, **overrides)
+        t = pd.concat([crt_trades(s, bars[s], m1[s], p, sigs[s]) for s in PAIRS], ignore_index=True)
+        if t.empty:
+            print(f"{name:14} aucun trade")
+            continue
+        t = one_per_day(t, plan["risk"]["max_trades_per_day"])
+        all_models[name] = t
+        t.to_csv(out / f"trades_CRT_{name.replace(' ', '_').replace('+', 'plus')}.csv", index=False)
+        pf = prop_firm(t, rules, plan["prop_firm"])
+        prop = f"{100 * pf['pass_phase1']:3.0f} % / {100 * pf['pass_both']:3.0f} %"
+        print_row(name, "2015-2020", t[t.day.dt.year <= 2020], prop)
+        print_row(name, "2021-2026", t[t.day.dt.year >= 2021])
+    print("\nDétail par setup (C2 = on trade pendant la formation du C2, C3 = après un C2 terminé) :")
+    for name, t in all_models.items():
+        for setup, g in t.groupby("bias_kind"):
+            print_row(f"{name} {setup}", "2015-2020", g[g.day.dt.year <= 2020])
+            print_row(f"{name} {setup}", "2021-2026", g[g.day.dt.year >= 2021])
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--tf", nargs="+", default=["M5", "M15"])
-    ap.add_argument("--compare", action="store_true", help="compare les règles de contexte (base, A, B, A+B)")
+    ap.add_argument("--tf", nargs="+", default=["M15"])
+    ap.add_argument("--compare", action="store_true", help="compare les règles de contexte de la v1")
+    ap.add_argument("--crt", action="store_true", help="les deux modèles CRT (4H et Daily)")
     args = ap.parse_args()
     plan = load_plan()
     out = ROOT / "results"
     out.mkdir(parents=True, exist_ok=True)
+    if args.crt:
+        compare_crt(plan, out)
+        return
     data = {s: (load_bars(s, "D1"), load_m1(s, ROOT), load_bars(s, "H1")) for s in PAIRS}
     if args.compare:
         compare(args.tf, plan, data, out)

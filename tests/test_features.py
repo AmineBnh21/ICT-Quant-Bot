@@ -90,3 +90,32 @@ def test_htf_fvg_zone_valid_until_close_through():
     assert touched_valid_zone(z, 1, 1.015, t_touch, t_touch + pd.Timedelta(hours=1))
     assert not touched_valid_zone(z, 1, 1.015, t_touch, t_after)  # signal après l'invalidation
     assert not touched_valid_zone(z, 1, 1.03, t_touch, t_touch + pd.Timedelta(hours=1))  # pas descendu dans la zone
+
+
+def test_pd_array_respect_and_disrespect():
+    from src.features.htf_bias import pd_array_dir
+
+    rows = [
+        (1.10, 1.12, 1.09, 1.11),
+        (1.11, 1.11, 1.05, 1.06),  # swing low 1.05 (i=1)
+        (1.06, 1.13, 1.06, 1.12),
+        (1.12, 1.14, 1.10, 1.13),  # swing low connu à partir d'ici
+        (1.13, 1.13, 1.04, 1.07),  # mèche sous 1.05, clôture au-dessus → respect → +1
+        (1.07, 1.12, 1.07, 1.11),
+    ]
+    d = pd_array_dir(bars(rows, freq="D"))
+    assert d.iloc[4] == 1 and d.iloc[5] == 1
+
+    rows2 = rows[:4] + [(1.13, 1.13, 1.03, 1.04)]  # clôture sous 1.05 → disrespect → -1
+    assert pd_array_dir(bars(rows2, freq="D")).iloc[4] == -1
+
+
+def test_known_at_uses_only_finished_candles():
+    from src.features.htf_bias import known_at
+
+    idx = pd.date_range("2024-01-07 17:00", periods=3, freq="7D", tz="America/New_York")
+    b = pd.DataFrame({"direction": [1, -1, 1]}, index=idx)
+    t = pd.DatetimeIndex([idx[0] + pd.Timedelta(days=1), idx[1] + pd.Timedelta(days=1)])
+    res = known_at(b, t)
+    assert np.isnan(res.direction.iloc[0])  # la 1re semaine n'est pas finie
+    assert res.direction.iloc[1] == 1  # pendant la 2e semaine, on connaît la 1re
