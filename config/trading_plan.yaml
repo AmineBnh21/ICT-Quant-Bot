@@ -1,0 +1,107 @@
+# Trading plan : Fractal Model C2/C3/C4 (voir docs/strategy.md pour les définitions et les sources)
+# Les valeurs marquées "TODO validate" sont des paramètres à trancher par le backtest.
+
+version: 0.1.0
+
+markets:
+  traded: [EURUSD, GBPUSD]
+  confirmation: [DXY, EURGBP]       # SMT / PSP / force relative
+  smt_pairs:
+    - [EURUSD, GBPUSD]               # corrélation positive
+    - [EURUSD, DXY]                  # corrélation inverse
+
+time:
+  timezone: America/New_York
+  daily_open: "17:00"                # open de la bougie daily en forex
+  h4_opens: ["17:00", "21:00", "01:00", "05:00", "09:00", "13:00"]
+  killzones:
+    london:  {start: "02:00", end: "05:00"}
+    newyork: {start: "07:00", end: "10:00"}
+
+timeframes:
+  bias: D1
+  structure: [H4, H1]
+  entry: [M15, M5]
+  alignment:                         # HTF -> timeframe du CISD de confirmation
+    W1: H4
+    D1: H1
+    H4: M15
+    H1: M5
+
+detectors:
+  swing:
+    fractal_length: 3                # TODO validate (3 ou 5)
+    relevant_lookback_htf_candles: 3
+  fvg:
+    min_size_atr: 0.1                # TODO validate
+    atr_period: 14
+    classify_third_candle: true      # PFVG / BAG / RFVG
+  cisd:
+    entry_at: series_open            # open de la série de bougies opposées
+  respect:
+    max_candles: 2                   # 2CR : 2 occasions de rejeter
+
+bias:
+  models: [continuation, reversal]   # clôture au-delà du PDH/PDL ou C2 (sweep + clôture à l'intérieur)
+  tradable_candles: [C2, C3]         # C4 désactivé dans la v1
+  c2_extra_confirmation: true        # C2 = haut risque, il faut un CISD sur H1
+  require_htf_cisd: false            # v2 : CISD H1 obligatoire
+  invalidation: eq_break             # cassure du 0.5 contre le biais
+
+draw_on_liquidity:
+  priority: [PDH_PDL, 3_day_lookback, PWH_PWL, htf_swing, htf_fvg, session_high_low]  # TODO validate
+  min_rr_to_dol: 2.0
+
+entry:
+  order_type: limit
+  require_context_zone: true         # FLOD / OD
+  require_premium_discount: true     # long en discount, short en premium
+
+risk:
+  risk_per_trade:                    # recalculé avant chaque trade
+    reference: initial_balance       # "en positif" = équité > capital initial
+    when_in_profit_pct: 1.0
+    when_flat_or_drawdown_pct: 0.5
+  stop: opposing_swing               # TODO validate : opposing_swing | opposing_body
+  target_r: 2.0                      # RR 1:2 fixe, pas de cible variable
+  break_even_at_r: 1.0               # TODO validate
+  max_trades_per_day: 1
+  bot_daily_loss_stop_pct: 1.0       # garde-fou du bot, bien en dessous de la limite prop firm (3 %)
+
+prop_firm:                           # Alpha Capital, Alpha Pro 6 % (2 steps), source : alphacapitalgroup.uk/product/alpha-pro, vérifié le 2026-11-17
+  name: alpha_capital_pro_6
+  phases:
+    - {name: phase_1, profit_target_pct: 6.0, min_trading_days: 3}
+    - {name: phase_2, profit_target_pct: 6.0, min_trading_days: 3}
+    - {name: qualified, profit_target_pct: 0.0}
+  max_daily_drawdown_pct: 3.0
+  daily_drawdown_reference: max(end_of_day_balance, end_of_day_equity)  # le plus haut des deux, à la clôture précédente
+  max_drawdown_pct: 6.0
+  max_drawdown_type: static          # fixé sur le capital de départ, ne suit pas les gains
+  leverage_fx: 100
+  # Règles qui ne s'appliquent qu'au compte Qualified (financé) :
+  qualified_rules:
+    no_trading_minutes_around_news: 5
+    no_weekend_holding: true
+  # Le risque dynamique (1 % / 0,5 %) se calcule par rapport au capital initial de CHAQUE phase.
+
+filters:
+  skip_consolidation: true           # premium et discount respectés tous les deux
+  skip_if_htf_target_taken: true
+  skip_if_short_term_target_taken: true
+  skip_against_htf_bias: true
+  skip_high_impact_news: [NFP, CPI, FOMC]
+  require_fvg_in_leg: true
+
+confirmations_optional:              # enregistrées comme features ML, pas obligatoires en v1
+  smt: false
+  psp: false
+  eurgbp_relative_strength: false
+
+costs:
+  # Les données HistData sont en BID : le backtest reconstruit ASK = BID + spread.
+  # Achats (entrée long, stop/cible d'un short) exécutés sur l'ASK, ventes sur le BID.
+  spread_points: 4                   # 4 points MT5 = 0.4 pip, même valeur pour toutes les paires
+  point_size: 0.00001                # 1 point sur EURUSD / GBPUSD
+  commission_per_lot_usd: 0.0        # pas de commission chez Alpha Capital (compte de l'utilisateur)
+  slippage_pips: 0.2

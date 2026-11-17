@@ -1,0 +1,11 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# Données de marché (téléchargées, trop lourdes pour git)
+/data/
+
+# PDFs du trading plan (contenu payant / sous droits d'auteur, à ne pas publier)
+docs/**/*.pdf
