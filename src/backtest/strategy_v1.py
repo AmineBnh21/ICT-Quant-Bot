@@ -158,6 +158,8 @@ def generate_trades(
                         exit_time=pd.Timestamp(f.exit_time, tz="UTC").tz_convert(tz),
                         entry=entry, stop=stop, target=target, dol=dol, exit_price=f.exit_price,
                         stop_pips=risk / p.pip, outcome=f.outcome, r=f.r, mae_r=f.mae_r, mfe_r=f.mfe_r,
+                        pdh=b.pdh, pdl=b.pdl, cisd_run_start=s.run_start, cisd_extreme=s.extreme,
+                        cisd_extreme_time=s.extreme_time, entry_tf=p.entry_tf,
                     )
                 )
                 done = True
