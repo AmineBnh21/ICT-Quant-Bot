@@ -95,9 +95,10 @@ def report(tf: str, trades: pd.DataFrame, plan: dict) -> None:
 VARIANTS = {
     "base": {},
     "A discount": {"require_discount": True},
-    "B FVG H1": {"require_htf_fvg": True},
-    "A + B": {"require_discount": True, "require_htf_fvg": True},
+    "A + C tous": {"require_discount": True, "h1_cisd": "all"},
+    "A + C C2": {"require_discount": True, "h1_cisd": "C2"},
 }
+# Règles déjà écartées (dégradent les deux périodes) : "B FVG H1" = {"require_htf_fvg": True}
 
 
 def compare(tfs: list[str], plan: dict, data: dict, out: Path) -> None:

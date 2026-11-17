@@ -45,6 +45,9 @@ class Params:
     require_discount: bool = False  # A : long sous l'EQ (0.5) de la bougie daily de la veille, short au-dessus
     require_htf_fvg: bool = False  # B : le mouvement du CISD a touché une FVG H1 valide dans le sens du biais
     fvg_max_age_bars: int = 120  # durée de vie d'une FVG H1 (5 jours) [À VALIDER]
+    # C : CISD H1 dans le sens du biais, formé depuis l'ouverture du jour, avant le signal d'entrée.
+    # "off" | "all" (tous les biais) | "C2" (seulement quand le biais vient d'un C2)
+    h1_cisd: str = "off"
 
 
 def _ns(ts: pd.Timestamp) -> int:
@@ -63,6 +66,10 @@ def generate_trades(
     bias = bias_for_next_day(d1)
     zones = fvg_zones(h1, pd.Timedelta(hours=1), p.fvg_max_age_bars) if p.require_htf_fvg else None
     signals = cisds(entry_bars) if signals is None else signals.copy()
+    h1_known = None
+    if p.h1_cisd != "off":
+        hc = cisds(h1)
+        h1_known = {1: (hc.index[hc.side == 1] + pd.Timedelta(hours=1)), -1: (hc.index[hc.side == -1] + pd.Timedelta(hours=1))}
     signals["day"] = day_key(signals.index)
     tf = pd.Timedelta(minutes=TF_MINUTES[p.entry_tf])
     m1 = M1.from_frame(m1_df)
@@ -104,6 +111,11 @@ def generate_trades(
                         continue
                 if p.require_htf_fvg and not touched_valid_zone(zones, int(b.bias), s.extreme, s.extreme_time, known_at):
                     continue
+                if p.h1_cisd == "all" or (p.h1_cisd == "C2" and b.bias_kind == "C2"):
+                    k = h1_known[int(b.bias)]
+                    i0, i1 = k.searchsorted(day_open, "left"), k.searchsorted(known_at, "right")
+                    if i1 <= i0:
+                        continue  # pas de CISD H1 confirmé dans le sens du biais
                 # DOL déjà prise entre l'ouverture du jour et le signal ?
                 window = slice(day_open.tz_convert("UTC"), known_at.tz_convert("UTC") - pd.Timedelta(minutes=1))
                 if b.bias == 1 and m1_ny_high.loc[window].max() >= dol:
