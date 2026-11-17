@@ -269,6 +269,9 @@ Pour un long (inverse pour un short) :
    du CISD, stop au-delà de l'extrême, **cible 2R fixe** (le CRT High doit être au-delà, et pas encore pris).
    Entrée dans la moitié discount du range de C1 (sous son 0,5).
 4. Option **top-down** : biais Weekly et Monthly (section 7 bis) pas dans le sens opposé.
+5. **Sortie dans la journée, pour les deux modèles** (confirmé par l'utilisateur) : si ni la cible ni le stop
+   ne sont touchés, le trade est fermé avant la fin du jour de trading (16:55 New York, avant le rollover).
+   Aucune position n'est gardée au lendemain.
 
 Code : `src/backtest/strategy_crt.py` ; comparaison : `python -m src.backtest.run --crt`.
 
